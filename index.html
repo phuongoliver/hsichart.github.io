@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HSI Data Viewer</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; margin: 20px; background-color: #f8f9fa; }
+        .container { max-width: 1100px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        h2 { text-align: center; color: #2c3e50; margin-bottom: 20px; }
+        
+        .control-panel {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        select {
+            padding: 8px 12px;
+            font-size: 16px;
+            border-radius: 5px;
+            border: 1px solid #ced4da;
+            min-width: 300px;
+        }
+
+        .loading { text-align: center; color: #666; display: none; font-style: italic; margin-top: 10px;}
+        canvas { max-height: 550px; width: 100%; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>🔍 Hyperspectral Signature Viewer</h2>
+    
+    <div class="control-panel">
+        <label for="fileSelect"><strong>Chọn dữ liệu:</strong></label>
+        <select id="fileSelect">
+            <option value="" disabled selected>-- Đang tải danh sách... --</option>
+        </select>
+        <button onclick="loadSelectedData()" style="padding: 8px 15px; cursor: pointer;">Tải lại biểu đồ</button>
+    </div>
+
+    <div id="loadingMsg" class="loading">Đang tải dữ liệu...</div>
+    
+    <div style="position: relative;">
+        <canvas id="myChart"></canvas>
+    </div>
+    
+    <p style="text-align: center; font-size: 0.85em; color: #888; margin-top: 10px;">
+        * Lăn chuột để Zoom - Giữ chuột trái để Pan - Double click để Reset Zoom
+    </p>
+</div>
+
+<script>
+    let myChart = null;
+    const DATA_FOLDER = './data/'; // Đường dẫn tương đối tới folder data
+
+    // 1. Tự động chạy khi trang web tải xong
+    document.addEventListener('DOMContentLoaded', async () => {
+        await loadIndexFile();
+    });
+
+    // 2. Hàm đọc file index.json để tạo danh sách dropdown
+    async function loadIndexFile() {
+        const selectEl = document.getElementById('fileSelect');
+        try {
+            const response = await fetch(DATA_FOLDER + 'index.json');
+            if (!response.ok) throw new Error("Không tìm thấy file index.json");
+            
+            const fileList = await response.json();
+            
+            // Xóa các option cũ
+            selectEl.innerHTML = '<option value="" disabled selected>-- Chọn file để hiển thị --</option>';
+
+            if (fileList.length === 0) {
+                selectEl.innerHTML = '<option disabled>Không có dữ liệu nào</option>';
+                return;
+            }
+
+            // Thêm option mới
+            fileList.forEach(filename => {
+                const option = document.createElement('option');
+                option.value = filename;
+                option.textContent = filename;
+                selectEl.appendChild(option);
+            });
+
+            // Lắng nghe sự kiện khi người dùng chọn file khác
+            selectEl.addEventListener('change', loadSelectedData);
+
+        } catch (error) {
+            console.error(error);
+            selectEl.innerHTML = '<option disabled>Lỗi: Không tải được index.json</option>';
+            alert("Lỗi: Vui lòng chạy Local Server (python -m http.server) để đọc được file JSON.");
+        }
+    }
+
+    // 3. Hàm tải dữ liệu của file được chọn và vẽ biểu đồ
+    async function loadSelectedData() {
+        const filename = document.getElementById('fileSelect').value;
+        if (!filename) return;
+
+        const loading = document.getElementById('loadingMsg');
+        loading.style.display = 'block';
+
+        try {
+            const response = await fetch(DATA_FOLDER + filename);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            
+            const data = await response.json();
+            renderChart(data);
+        } catch (error) {
+            console.error("Lỗi tải file data:", error);
+            alert(`Không thể tải file: ${filename}`);
+        } finally {
+            loading.style.display = 'none';
+        }
+    }
+
+    // 4. Hàm vẽ biểu đồ
+    function renderChart(data) {
+        const ctx = document.getElementById('myChart').getContext('2d');
+
+        const mean = data.mean;
+        const std = data.std;
+        
+        // Tính toán vùng Upper/Lower bound cho Std Dev
+        const upper = mean.map((v, i) => v !== null ? v + std[i] : null);
+        const lower = mean.map((v, i) => v !== null ? v - std[i] : null);
+
+        if (myChart) {
+            myChart.destroy();
+        }
+
+        myChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.labels,
+                datasets: [
+                    {
+                        label: 'Mean Spectrum',
+                        data: mean,
+                        borderColor: 'rgb(220, 53, 69)', // Màu đỏ đậm
+                        backgroundColor: 'rgb(220, 53, 69)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        pointHoverRadius: 6,
+                        tension: 0.2
+                    },
+                    {
+                        label: '+Std Dev',
+                        data: upper,
+                        borderColor: 'transparent',
+                        backgroundColor: 'rgba(220, 53, 69, 0.2)', // Màu đỏ nhạt
+                        pointRadius: 0,
+                        fill: '+1', 
+                        tension: 0.2
+                    },
+                    {
+                        label: '-Std Dev',
+                        data: lower,
+                        borderColor: 'transparent',
+                        backgroundColor: 'transparent',
+                        pointRadius: 0,
+                        fill: false,
+                        tension: 0.2
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    title: { display: true, text: `Phổ phản xạ: ${data.filename}`, font: {size: 18} },
+                    
+                    // --- PHẦN ĐƯỢC CHỈNH SỬA ---
+                    tooltip: {
+                        callbacks: {
+                            // 1. Thay đổi Tiêu đề Tooltip thành giá trị Y (Reflectance)
+                            title: function(tooltipItems) {
+                                const yValue = tooltipItems[0].parsed.y;
+                                return `Reflectance: ${yValue.toFixed(4)}`;
+                            },
+                            // 2. Thay đổi Nội dung Tooltip thành giá trị X (Wavelength)
+                            label: function(context) {
+                                if (context.dataset.label === 'Mean Spectrum') {
+                                    return `Wavelength: ${context.label} nm`;
+                                }
+                                return null; // Ẩn tooltip cho các đường Std Dev
+                            }
+                        }
+                    },
+                    // ---------------------------
+
+                    zoom: {
+                        zoom: {
+                            wheel: { enabled: true },
+                            pinch: { enabled: true },
+                            mode: 'x',
+                        },
+                        pan: { enabled: true, mode: 'x' },
+                        limits: { y: { min: 0, max: 1.2 } }
+                    }
+                },
+                scales: {
+                    x: { title: { display: true, text: 'Wavelength (nm)' } },
+                    y: { title: { display: true, text: 'Surface Reflectance' }, min: 0 }
+                }
+            }
+        });
+    }
+</script>
+
+</body>
+</html>
