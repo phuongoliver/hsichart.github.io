@@ -52,6 +52,7 @@
     <div id="loadingMsg" class="loading">Đang tải dữ liệu...</div>
     
     <div style="position: relative;">
+        <strong id="count"></strong>
         <canvas id="myChart"></canvas>
     </div>
     
@@ -132,6 +133,8 @@
 
         const mean = data.mean;
         const std = data.std;
+
+        document.getElementById("count").innerHTML = `Số lượng phổ phản xạ: ${mean.length} phổ (từ ${data.labels[0]}nm đến ${data.labels[data.labels.length - 1]}nm)`
         
         // Tính toán vùng Upper/Lower bound cho Std Dev
         const upper = mean.map((v, i) => v !== null ? v + std[i] : null);
